@@ -1,32 +1,37 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
+import datetime
 
+# The Base class is used by SQLAlchemy to map your Python class to a database table
 Base = declarative_base()
 
-class Woreda(Base):
-    __tablename__ = 'woredas'
-    id = Column(Integer, primary_key=True)
-    name = Column(String, unique=True, nullable=False)
-    kebeles = relationship("Kebele", back_populates="woreda", cascade="all, delete-orphan")
-
-class Kebele(Base):
-    __tablename__ = 'kebeles'
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    woreda_id = Column(Integer, ForeignKey('woredas.id'))
-    woreda = relationship("Woreda", back_populates="kebeles")
-
 class Farmer(Base):
+    """
+    This model defines the 'farmers' table in your SQLite database.
+    It stores all information collected during the survey.
+    """
     __tablename__ = 'farmers'
-    id = Column(Integer, primary_key=True)
+
+    # Primary Key: Unique ID for every farmer
+    id = Column(Integer, primary_key=True, autocat_increment=True)
+    
+    # Automatically records the date and time of registration
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Farmer Personal Info
     name = Column(String, nullable=False)
-    woreda = Column(String)
+    woreda = Column(String, nullable=False)
     kebele = Column(String)
     phone = Column(String)
-    audio_path = Column(String)
+    
+    # Audio Storage: Stores the recording as a Base64 encoded string
+    audio_data = Column(Text) 
+    
+    # Editor Tracking: Stores the name of the person who logged in to register this farmer
     registered_by = Column(String)
 
-def create_tables():
-    from database import engine
-    Base.metadata.create_all(engine)
+def create_tables(engine):
+    """
+    Utility function to create the table in the database file
+    """
+    Base.metadata.create_all(bind=engine)

@@ -5,7 +5,7 @@ A streamlined mobile-friendly web application designed for Monitoring and Evalua
 ## 🚀 Features
 - **Editor Identification:** One-time name entry per session to track data entry.
 - **Farmer Registration:** Collects Name, Woreda, Kebele, Phone, and Audio recordings.
-- **Secure Admin Dashboard:** Protected by passcode `oaf2026`.
+- **Secure Admin Dashboard:** Protected by passcode .
 - **Bulk Data Export:** - Download all data as an Excel-compatible CSV (UTF-8 support for Amharic).
   - Download all audio recordings in a single ZIP file.
 - **Database Management:** Single-click "Delete All" functionality for administrators.

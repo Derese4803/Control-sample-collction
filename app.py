@@ -10,9 +10,9 @@ from io import BytesIO
 # ============================================================================
 # GITHUB ENVIRONMENT CONFIGURATION
 # ============================================================================
-# ⚠️ MAKE SURE THESE STRINGS EXACTLY MATCH YOUR GITHUB URL (CASE-SENSITIVE)
-GITHUB_OWNER = "Derese4803"                 # Your exact GitHub username
-GITHUB_REPO = "control-sample-collection"   # Your exact repository name
+# ⚠️ THESE STRINGS MATCH YOUR EXACT SPELLING & CAPITALIZATION
+GITHUB_OWNER = "Derese4803"                 # Exact case matching your profile
+GITHUB_REPO = "control-sample-collection"   # Corrected spelling of collection
 CSV_FILENAME = "amhara_me_2026.csv"         # The name of your spreadsheet database
 
 # ============================================================================
@@ -45,7 +45,7 @@ def fetch_data_from_github() -> pd.DataFrame:
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
         
-    # Standard schema structure matching your uploaded file columns perfectly
+    # Standard fallback columns structured around your exact configuration files
     return pd.DataFrame(columns=["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"])
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
@@ -141,7 +141,7 @@ elif st.session_state["page"] == "Reg":
                         # 1. Access current data spreadsheet from repo
                         df = fetch_data_from_github()
                         
-                        # 2. Extract linear index sequence identifiers
+                        # 2. Extract linear index sequence identifiers safely
                         try:
                             next_id = int(pd.to_numeric(df["id"]).max() + 1) if not df.empty and "id" in df.columns else 1
                         except:

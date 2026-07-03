@@ -10,10 +10,10 @@ from io import BytesIO
 # ============================================================================
 # GITHUB ENVIRONMENT CONFIGURATION
 # ============================================================================
-# ⚠️ UPDATE THESE STRINGS TO MATCH YOUR ACCOUNT EXACTLY
-GITHUB_OWNER = "mohammed-seid"       
-GITHUB_REPO = "hfc-data-private"     
-CSV_FILENAME = "amhara_me_2026.csv"  
+# ⚠️ MAKE SURE THESE STRINGS EXACTLY MATCH YOUR GITHUB URL (CASE-SENSITIVE)
+GITHUB_OWNER = "derese4803"       # Your exact GitHub username
+GITHUB_REPO = "hfc-data-private"     # Your exact repository name
+CSV_FILENAME = "amhara_me_2026.csv"  # The name of your spreadsheet database
 
 # ============================================================================
 # CLOUD DATABASE STORAGE CORE LOGIC (GITHUB API)
@@ -66,7 +66,7 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
     payload = {
         "message": f"Survey Sync - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
         "content": encoded_data,
-        "branch": "main"  # Swap to 'master' if your repo baseline uses it
+        "branch": "main"  # 👈 Change to 'master' if your repo baseline uses it
     }
     if sha: 
         payload["sha"] = sha

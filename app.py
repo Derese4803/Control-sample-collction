@@ -10,10 +10,9 @@ from io import BytesIO
 # ============================================================================
 # GITHUB ENVIRONMENT CONFIGURATION
 # ============================================================================
-# ⚠️ THESE STRINGS MATCH YOUR EXACT SPELLING & CAPITALIZATION
-GITHUB_OWNER = "Derese4803"                 # Exact case matching your profile
-GITHUB_REPO = "control-sample-collction"   # Corrected spelling of collection
-CSV_FILENAME = "amhara_me_2026.csv"         # The name of your spreadsheet database
+GITHUB_OWNER = "Derese4803"                 
+GITHUB_REPO = "control-sample-collction"   # Or "control-sample-collction" based on your URL
+CSV_FILENAME = "amhara_me_2026.csv"         
 
 # ============================================================================
 # CLOUD DATABASE STORAGE CORE LOGIC (GITHUB API)
@@ -45,7 +44,6 @@ def fetch_data_from_github() -> pd.DataFrame:
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
         
-    # Standard fallback columns structured around your exact configuration files
     return pd.DataFrame(columns=["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"])
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
@@ -56,7 +54,6 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
     
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
     
-    # Check if file exists to pull down its version SHA hash tracking identifier
     response = requests.get(url, headers=headers)
     sha = response.json()['sha'] if response.status_code == 200 else None
     
@@ -66,7 +63,7 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
     payload = {
         "message": f"Survey Sync - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
         "content": encoded_data,
-        "branch": "main"  # 👈 Change to 'master' if your repo baseline uses it
+        "branch": "main"  
     }
     if sha: 
         payload["sha"] = sha
@@ -100,10 +97,9 @@ def nav(p):
 # ============================================================================
 if st.session_state["page"] == "Home":
     st.title("🌾 Amhara M&E Survey 2026")
-    st.caption("Cloud Storage Subsystem Engine: Connected via GitHub Repository Tables")
     
     if st.session_state["editor"]:
-        st.success(f"👤 Active Editor Profiling Mode: **{st.session_state['editor']}**")
+        st.success(f"👤 Active Editor: **{st.session_state['editor']}**")
     
     st.divider()
     col1, col2 = st.columns(2)
@@ -138,16 +134,13 @@ elif st.session_state["page"] == "Reg":
             if st.form_submit_button("Save Registration Metadata"):
                 if f_name and woreda and kebele:
                     with st.spinner("Processing transaction package to cloud..."):
-                        # 1. Access current data spreadsheet from repo
                         df = fetch_data_from_github()
                         
-                        # 2. Extract linear index sequence identifiers safely
                         try:
                             next_id = int(pd.to_numeric(df["id"]).max() + 1) if not df.empty and "id" in df.columns else 1
                         except:
                             next_id = len(df) + 1
                         
-                        # 3. Compile new entry vector matching your exact CSV file structure
                         new_entry = pd.DataFrame([{
                             "id": next_id,
                             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -159,7 +152,6 @@ elif st.session_state["page"] == "Reg":
                             "Audio Recording Memo": to_b64(audio)
                         }])
                         
-                        # 4. Concatenate records matrices and save remote cloud file
                         updated_df = pd.concat([df, new_entry], ignore_index=True)
                         if save_data_to_github(updated_df):
                             st.success(f"✅ Sync Successful! Record securely logged to GitHub Cloud for {f_name}.")
@@ -184,24 +176,6 @@ elif st.session_state["page"] == "Data":
             else:
                 st.error("Invalid passcode token entered.")
     else:
-        # --- AUTOMATED PERMISSIONS TESTING INSTRUMENT ---
-        with st.expander("🔍 Cloud Database Connection Diagnostic Tester"):
-            if st.button("Execute Verification Framework"):
-                headers = get_github_headers()
-                url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
-                
-                res = requests.get(url, headers=headers)
-                if res.status_code == 200:
-                    st.success("✅ Connectivity & Read Access: SUCCESS (System can read your cloud database)")
-                    scopes = res.headers.get("X-OAuth-Scopes", "")
-                    if "repo" in scopes or "public_repo" in scopes:
-                        st.success(f"✅ Secure Write Access: SUCCESS (Token holds 'repo' permissions. Scope map: {scopes})")
-                    else:
-                        st.error(f"❌ Secure Write Access: FAILED (Token missing repository scopes. Found: {scopes})")
-                else:
-                    st.error(f"❌ Sync Failure: Target not found (Status Code: {res.status_code}). Confirm Owner & Repository name spellings.")
-
-        # Download database representation from repository
         df = fetch_data_from_github()
         
         col_t, col_l = st.columns([8, 2])
@@ -210,7 +184,6 @@ elif st.session_state["page"] == "Data":
             st.session_state["auth"] = False
             st.rerun()
 
-        # Check if database file has logs populated inside it
         has_records = False
         if not df.empty:
             if len(df) > 0 and not (len(df) == 1 and df.iloc[0].isna().all()):
@@ -220,11 +193,9 @@ elif st.session_state["page"] == "Data":
             st.subheader("📥 Cloud Data Packages Extraction Modules")
             c1, c2 = st.columns(2)
             
-            # Form clean text-based table spreadsheet for analytics (omits audio blobs)
             display_df = df.drop(columns=["Audio Recording Memo"]) if "Audio Recording Memo" in df.columns else df
             c1.download_button("📥 Extract Metrics Sheet (CSV)", display_df.to_csv(index=False).encode('utf-8-sig'), "Amhara_ME_Data_2026.csv", use_container_width=True)
             
-            # Assemble audio recording blobs back into a direct download ZIP archive
             with st.spinner("Decoding audio binary streams from database..."):
                 z_buf = BytesIO()
                 with zipfile.ZipFile(z_buf, "w") as zf:
@@ -241,7 +212,6 @@ elif st.session_state["page"] == "Data":
 
             st.divider()
 
-            # Data clearance controller engine
             st.subheader("🗑️ Cleanse Datasets Control System")
             st.warning("Critical Warning: Confirming this option completely clears your CSV text database file from GitHub.")
             if st.button("PERMANENTLY FLUSH CLOUD REPOSITORY RECORDS", type="primary", use_container_width=True):

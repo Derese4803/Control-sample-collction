@@ -11,8 +11,8 @@ from io import BytesIO
 # GITHUB ENVIRONMENT CONFIGURATION
 # ============================================================================
 # ⚠️ MAKE SURE THESE STRINGS EXACTLY MATCH YOUR GITHUB URL (CASE-SENSITIVE)
-GITHUB_OWNER = "Derese4803"                 # Your exact GitHub username
-GITHUB_REPO = "control-sample-collection"   # Your updated repository name
+GITHUB_OWNER = "derese4803"                 # Your exact GitHub username
+GITHUB_REPO = "control-sample-collection"   # Your exact repository name
 CSV_FILENAME = "amhara_me_2026.csv"         # The name of your spreadsheet database
 
 # ============================================================================
@@ -45,7 +45,7 @@ def fetch_data_from_github() -> pd.DataFrame:
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
         
-    # Standard schema structure falling back to your exact custom format layout
+    # Standard schema structure matching your uploaded file columns perfectly
     return pd.DataFrame(columns=["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"])
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:

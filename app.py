@@ -12,7 +12,7 @@ from io import BytesIO
 # ============================================================================
 # ⚠️ THESE STRINGS MATCH YOUR EXACT SPELLING & CAPITALIZATION
 GITHUB_OWNER = "Derese4803"                 # Exact case matching your profile
-GITHUB_REPO = "control-sample-collection"   # Corrected spelling of collection
+GITHUB_REPO = "control-sample-collction"   # Corrected spelling of collection
 CSV_FILENAME = "amhara_me_2026.csv"         # The name of your spreadsheet database
 
 # ============================================================================

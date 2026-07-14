@@ -170,7 +170,7 @@ elif st.session_state["page"] == "Data":
         st.header("🔒 Executive Access Verification")
         pass_input = st.text_input("Enter Root Passcode Token", type="password")
         if st.button("Validate Security Token"):
-            if pass_input == "oaf2026": 
+            if pass_input == "admin123": 
                 st.session_state["auth"] = True
                 st.rerun()
             else:

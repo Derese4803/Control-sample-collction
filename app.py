@@ -14,6 +14,9 @@ GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "control-sample-collction"
 CSV_FILENAME = "amhara_me_2026.csv"
 
+# Expected columns for empty/new file
+EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"]
+
 # ============================================================================
 # CLOUD DATABASE STORAGE CORE LOGIC (GITHUB API)
 # ============================================================================
@@ -33,18 +36,37 @@ def fetch_data_from_github() -> pd.DataFrame:
     """Downloads the current CSV database file straight from your repository"""
     headers = get_github_headers()
     if not headers:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=EXPECTED_COLS)
 
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
+
     try:
         response = requests.get(url, headers=headers, timeout=10)
+
+        # File doesn't exist yet — return empty with headers
+        if response.status_code == 404:
+            return pd.DataFrame(columns=EXPECTED_COLS)
+
         if response.status_code == 200:
             content = base64.b64decode(response.json()['content']).decode('utf-8')
-            return pd.read_csv(io.StringIO(content))
+
+            # Handle completely empty file (0 bytes or just whitespace)
+            if not content or not content.strip():
+                return pd.DataFrame(columns=EXPECTED_COLS)
+
+            try:
+                df = pd.read_csv(io.StringIO(content))
+                # Handle file with no columns
+                if df.empty and len(df.columns) == 0:
+                    return pd.DataFrame(columns=EXPECTED_COLS)
+                return df
+            except pd.errors.EmptyDataError:
+                return pd.DataFrame(columns=EXPECTED_COLS)
+
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
         
-    return pd.DataFrame(columns=["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"])
+    return pd.DataFrame(columns=EXPECTED_COLS)
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
     """Overwrites or appends data rows to your repository spreadsheet"""
@@ -249,7 +271,7 @@ elif st.session_state["page"] == "Data":
             st.subheader("🗑️ Cleanse Datasets Control System")
             st.warning("Critical Warning: Confirming this option completely clears your CSV text database file from GitHub.")
             if st.button("PERMANENTLY FLUSH CLOUD REPOSITORY RECORDS", type="primary", use_container_width=True):
-                empty_df = pd.DataFrame(columns=["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"])
+                empty_df = pd.DataFrame(columns=EXPECTED_COLS)
                 if save_data_to_github(empty_df):
                     st.success("Cloud spreadsheets successfully wiped from repository layout.")
                     st.rerun()

@@ -232,7 +232,7 @@ if st.session_state["page"] == "Home":
     st.title("🌾 Amhara M&E Survey 2026")
     
     if st.session_state['editor']:
-        st.success(f"👤 Active Editor: **{st.session_state['editor']}**")
+        st.success(f"👤 Active Enumerator: **{st.session_state['editor']}**")
     
     st.divider()
     col1, col2 = st.columns(2)
@@ -249,15 +249,15 @@ elif st.session_state["page"] == "Reg":
     
     if not st.session_state['editor']:
         with st.container(border=True):
-            st.subheader("Field Agent Authentication")
-            name_in = st.text_input("Registered By (Your Full Name):")
+            st.subheader("Enumerator Authentication")
+            name_in = st.text_input("Registered By (Enumerator Full Name):")
             if st.button("Initialize Terminal Session"):
                 if name_in.strip():
                     st.session_state['editor'] = name_in.strip()
                     st.rerun()
     else:
         with st.form("reg_form", clear_on_submit=True):
-            st.info(f"Logging Metrics Data As: {st.session_state['editor']}")
+            st.info(f"Logging Metrics Data As Enumerator: {st.session_state['editor']}")
             f_name = st.text_input("Farmer Name")
             woreda = st.text_input("Woreda Zone")
             kebele = st.text_input("Kebele Locality")
@@ -346,55 +346,48 @@ elif st.session_state["page"] == "Data":
             
             total_records = len(df)
             
-            # Count records with a non-empty audio filename
             has_audio_mask = df["Audio File"].apply(
                 lambda x: pd.notna(x) and str(x).strip() != "" and str(x).strip().lower() not in ["nan", "none"]
             )
             total_audio = has_audio_mask.sum()
             
-            # Count unique agents/users
-            unique_users = df["user-name"].nunique() if "user-name" in df.columns else 0
-            
-            # Audio completion rate
+            unique_enumerators = df["user-name"].nunique() if "user-name" in df.columns else 0
             audio_ratio = (total_audio / total_records * 100) if total_records > 0 else 0
             
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("📋 Total Records", total_records)
             m2.metric("🎤 Total Audio Files", total_audio)
-            m3.metric("👥 Active Field Agents", unique_users)
+            m3.metric("👥 Active Enumerators", unique_enumerators)
             m4.metric("📊 Audio Coverage Rate", f"{audio_ratio:.1f}%")
             
             st.divider()
 
             # ----------------------------------------------------------------
-            # 2. USER PERFORMANCE BREAKDOWN (WHICH USER -> HOW MANY DATA & AUDIO)
+            # 2. ENUMERATOR PERFORMANCE BREAKDOWN
             # ----------------------------------------------------------------
-            st.subheader("👥 Agent Activity & Audio Breakdown")
+            st.subheader("👥 Enumerator Activity & Audio Breakdown")
             
             if "user-name" in df.columns:
-                # Group data by user-name
-                user_summary = df.groupby("user-name").agg(
+                enum_summary = df.groupby("user-name").agg(
                     Total_Data=("id", "count"),
                     Total_Audio=("Audio File", lambda x: x.apply(
                         lambda v: pd.notna(v) and str(v).strip() != "" and str(v).strip().lower() not in ["nan", "none"]
                     ).sum())
                 ).reset_index()
                 
-                user_summary["Audio Coverage (%)"] = (user_summary["Total_Audio"] / user_summary["Total_Data"] * 100).round(1)
-                user_summary.columns = ["Agent Name (User)", "Total Data Logged", "Total Audio Files", "Audio Coverage (%)"]
-                user_summary = user_summary.sort_values("Total Data Logged", ascending=False)
+                enum_summary["Audio Coverage (%)"] = (enum_summary["Total_Audio"] / enum_summary["Total_Data"] * 100).round(1)
+                enum_summary.columns = ["Enumerator Name", "Total Data Logged", "Total Audio Files", "Audio Coverage (%)"]
+                enum_summary = enum_summary.sort_values("Total Data Logged", ascending=False)
                 
-                # Display Summary Table
-                st.dataframe(user_summary, use_container_width=True, hide_index=True)
+                st.dataframe(enum_summary, use_container_width=True, hide_index=True)
                 
-                # Comparative Visual Charts
                 c_chart1, c_chart2 = st.columns(2)
                 with c_chart1:
-                    st.markdown("**📋 Data Logged Per Agent**")
-                    st.bar_chart(user_summary.set_index("Agent Name (User)")["Total Data Logged"])
+                    st.markdown("**📋 Data Logged Per Enumerator**")
+                    st.bar_chart(enum_summary.set_index("Enumerator Name")["Total Data Logged"])
                 with c_chart2:
-                    st.markdown("**🎤 Audio Uploads Per Agent**")
-                    st.bar_chart(user_summary.set_index("Agent Name (User)")["Total Audio Files"])
+                    st.markdown("**🎤 Audio Uploads Per Enumerator**")
+                    st.bar_chart(enum_summary.set_index("Enumerator Name")["Total Audio Files"])
 
             st.divider()
             
@@ -462,4 +455,4 @@ elif st.session_state["page"] == "Data":
                     st.success("All records wiped successfully.")
                     st.rerun()
         else:
-            st.info("No surveyor records are currently stored inside your remote GitHub cloud database file.")
+            st.info("No enumerator records are currently stored inside your remote GitHub cloud database file.")

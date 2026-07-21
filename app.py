@@ -13,10 +13,9 @@ from io import BytesIO
 GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "control-sample-collction"
 CSV_FILENAME = "amhara_me_2026.csv"
-AUDIO_FOLDER = "audio"
 
-# Expected columns
-EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Filename", "Audio Base64"]
+# Expected columns - Audio is stored as base64 in CSV (proven working)
+EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"]
 
 # ============================================================================
 # CLOUD DATABASE STORAGE CORE LOGIC (GITHUB API)
@@ -33,6 +32,7 @@ def get_github_headers():
     }
 
 def fetch_data_from_github() -> pd.DataFrame:
+    """Downloads the current CSV database file from your repository"""
     headers = get_github_headers()
     if not headers:
         return pd.DataFrame(columns=EXPECTED_COLS)
@@ -74,6 +74,7 @@ def fetch_data_from_github() -> pd.DataFrame:
     return pd.DataFrame(columns=EXPECTED_COLS)
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
+    """Overwrites or appends data rows to your repository spreadsheet"""
     headers = get_github_headers()
     if not headers:
         return False
@@ -110,82 +111,11 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
         st.error(f"Network error during upload: {str(e)}")
         return False
 
-def upload_audio_to_github(filename, file_bytes):
-    """Uploads audio file to audio/ folder. Returns (success, error_msg)"""
-    headers = get_github_headers()
-    if not headers:
-        return False, "No GitHub headers available"
-
-    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{AUDIO_FOLDER}/{filename}"
-
-    if len(file_bytes) > 100 * 1024 * 1024:
-        return False, f"File too large: {len(file_bytes)} bytes (max 100MB)"
-
-    encoded_data = base64.b64encode(file_bytes).decode()
-
-    payload = {
-        "message": f"Audio upload - {filename}",
-        "content": encoded_data,
-        "branch": "main"
-    }
-    
-    try:
-        res = requests.put(url, headers=headers, json=payload, timeout=60)
-        if res.status_code in [200, 201]:
-            return True, "OK"
-        elif res.status_code == 404:
-            return False, "404: audio/ folder not found. On GitHub, create file audio/.gitkeep first."
-        elif res.status_code == 401:
-            return False, "401: Unauthorized - token missing repo scope"
-        else:
-            return False, f"HTTP {res.status_code}: {res.text[:200]}"
-    except Exception as e:
-        return False, f"Exception: {str(e)}"
-
-def fetch_audio_from_github(filename):
-    headers = get_github_headers()
-    if not headers:
-        return b""
-
-    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{AUDIO_FOLDER}/{filename}"
-
-    try:
-        response = requests.get(url, headers=headers, timeout=60)
-        if response.status_code == 200:
-            return base64.b64decode(response.json()['content'])
-    except Exception:
-        pass
-    return b""
-
-def delete_audio_from_github(filename):
-    headers = get_github_headers()
-    if not headers:
-        return False
-
-    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{AUDIO_FOLDER}/{filename}"
-
-    sha = None
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            sha = response.json().get('sha')
-    except Exception:
-        pass
-
-    if not sha:
-        return True
-
-    payload = {
-        "message": f"Delete audio - {filename}",
-        "sha": sha,
-        "branch": "main"
-    }
-
-    try:
-        res = requests.delete(url, headers=headers, json=payload, timeout=10)
-        return res.status_code in [200, 204]
-    except Exception:
-        return False
+def to_b64(file):
+    """Encodes uploaded media binaries safely into flat strings"""
+    if file:
+        return base64.b64encode(file.getvalue()).decode()
+    return ""
 
 # ============================================================================
 # STATE ROUTING MANAGEMENT
@@ -247,26 +177,6 @@ elif st.session_state["page"] == "Reg":
                         except:
                             next_id = len(df) + 1
                         
-                        # Upload audio separately if provided
-                        audio_filename = ""
-                        audio_base64 = ""
-                        if audio is not None:
-                            safe_name = str(f_name).replace(' ', '_').replace('/', '_')[:30]
-                            ext = audio.name.split(".")[-1] if "." in audio.name else "mp3"
-                            audio_filename = f"ID_{next_id}_{safe_name}.{ext}"
-                            audio_bytes = audio.getvalue()
-                            
-                            st.info(f"📤 Uploading audio: {audio_filename} ({len(audio_bytes):,} bytes)...")
-                            success, msg = upload_audio_to_github(audio_filename, audio_bytes)
-                            
-                            if success:
-                                st.success(f"✅ Audio uploaded to cloud: {audio_filename}")
-                            else:
-                                st.error(f"❌ Audio upload failed: {msg}")
-                                st.info("💾 Falling back to storing audio in CSV (file will be large).")
-                                audio_base64 = base64.b64encode(audio_bytes).decode()
-                                audio_filename = ""
-                        
                         new_entry = pd.DataFrame([{
                             "id": next_id,
                             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -275,8 +185,7 @@ elif st.session_state["page"] == "Reg":
                             "Woreda Zone": woreda,
                             "Kebele Locality": kebele,
                             "Phone Link Contact": phone,
-                            "Audio Filename": audio_filename,
-                            "Audio Base64": audio_base64
+                            "Audio Recording Memo": to_b64(audio)
                         }])
                         
                         updated_df = pd.concat([df, new_entry], ignore_index=True)
@@ -323,19 +232,15 @@ elif st.session_state["page"] == "Data":
             st.subheader("📈 Survey Analytics Overview")
             
             total_records = len(df)
-            audio_separate = 0
-            audio_fallback = 0
-            if "Audio Filename" in df.columns:
-                audio_separate = df["Audio Filename"].apply(lambda x: pd.notna(x) and str(x).strip() != "").sum()
-            if "Audio Base64" in df.columns:
-                audio_fallback = df["Audio Base64"].apply(lambda x: pd.notna(x) and str(x).strip() != "").sum()
+            audio_count = 0
+            if "Audio Recording Memo" in df.columns:
+                audio_count = df["Audio Recording Memo"].apply(lambda x: pd.notna(x) and str(x).strip() != "").sum()
             
             # Metrics cards
-            m1, m2, m3, m4 = st.columns(4)
+            m1, m2, m3 = st.columns(3)
             m1.metric("📋 Total Records", total_records)
-            m2.metric("🎤 Audio in Folder", audio_separate)
-            m3.metric("💾 Audio in CSV", audio_fallback)
-            m4.metric("👥 Active Agents", df["user-name"].nunique() if "user-name" in df.columns else 0)
+            m2.metric("🎤 Audio Attachments", audio_count)
+            m3.metric("👥 Active Agents", df["user-name"].nunique() if "user-name" in df.columns else 0)
             
             st.divider()
             
@@ -344,10 +249,9 @@ elif st.session_state["page"] == "Data":
             if "user-name" in df.columns:
                 user_stats = df.groupby("user-name").agg(
                     Records=("id", "count"),
-                    Audio_Folder=("Audio Filename", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum()),
-                    Audio_CSV=("Audio Base64", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum())
+                    Audio_Submissions=("Audio Recording Memo", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum())
                 ).reset_index()
-                user_stats.columns = ["Agent Name", "Records Entered", "Audio in Folder", "Audio in CSV"]
+                user_stats.columns = ["Agent Name", "Records Entered", "Audio Uploaded"]
                 user_stats = user_stats.sort_values("Records Entered", ascending=False)
                 st.dataframe(user_stats, use_container_width=True, hide_index=True)
                 
@@ -357,68 +261,37 @@ elif st.session_state["page"] == "Data":
             st.divider()
             
             st.subheader("📥 Cloud Data Packages Extraction Modules")
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             
-            display_df = df.drop(columns=["Audio Base64"], errors="ignore")
+            display_df = df.drop(columns=["Audio Recording Memo"]) if "Audio Recording Memo" in df.columns else df
             c1.download_button("📥 Extract Metrics Sheet (CSV)", display_df.to_csv(index=False).encode('utf-8-sig'), "Amhara_ME_Data_2026.csv", use_container_width=True)
             
-            with st.spinner("Packing audio files from cloud folder..."):
+            with st.spinner("Decoding audio binary streams from database..."):
                 z_buf = BytesIO()
                 with zipfile.ZipFile(z_buf, "w") as zf:
                     audio_found = 0
-                    audio_missing = 0
                     for idx, row in df.iterrows():
-                        audio_fn = str(row.get('Audio Filename', '')).strip()
-                        if audio_fn and audio_fn != "":
-                            audio_bytes = fetch_audio_from_github(audio_fn)
-                            if audio_bytes and len(audio_bytes) > 0:
-                                zf.writestr(audio_fn, audio_bytes)
-                                audio_found += 1
-                            else:
-                                audio_missing += 1
-                    
-                    if audio_missing > 0:
-                        st.warning(f"⚠️ {audio_missing} audio file(s) missing from folder. Only {audio_found} included.")
-                    elif audio_found == 0 and audio_missing == 0:
-                        st.info("ℹ️ No audio files in cloud folder.")
-                    else:
-                        st.success(f"✅ {audio_found} audio file(s) from folder packed in ZIP.")
-            c2.download_button("🎤 Extract from Folder (ZIP)", z_buf.getvalue(), "Amhara_ME_Audios_Folder.zip", use_container_width=True)
-            
-            with st.spinner("Packing audio from CSV fallback..."):
-                z_buf2 = BytesIO()
-                with zipfile.ZipFile(z_buf2, "w") as zf:
-                    csv_audio_found = 0
-                    for idx, row in df.iterrows():
-                        b64_data = str(row.get('Audio Base64', '')).strip()
-                        if b64_data and b64_data != "":
+                        audio_str = row.get('Audio Recording Memo', '')
+                        if pd.notna(audio_str) and str(audio_str).strip() != "":
                             try:
-                                audio_bytes = base64.b64decode(b64_data)
-                                fn = str(row.get('Audio Filename', f'audio_{idx}.mp3')).strip()
-                                if not fn or fn == "":
-                                    fn = f"audio_{idx}.mp3"
-                                zf.writestr(fn, audio_bytes)
-                                csv_audio_found += 1
-                            except Exception:
+                                binary_audio = base64.b64decode(audio_str)
+                                farmer_name = str(row.get('Farmer Name', f'Unknown_{idx}')).replace(' ', '_')
+                                zf.writestr(f"ID_{row.get('id', idx)}_{farmer_name}.mp3", binary_audio)
+                                audio_found += 1
+                            except:
                                 pass
                     
-                    if csv_audio_found > 0:
-                        st.success(f"✅ {csv_audio_found} audio file(s) from CSV packed in ZIP.")
+                    if audio_found > 0:
+                        st.success(f"✅ {audio_found} audio file(s) decoded and packed in ZIP.")
                     else:
-                        st.info("ℹ️ No audio stored in CSV fallback.")
-            c3.download_button("💾 Extract from CSV (ZIP)", z_buf2.getvalue(), "Amhara_ME_Audios_CSV.zip", use_container_width=True)
+                        st.info("ℹ️ No audio recordings found in database.")
+            c2.download_button("🎤 Extract Voice Recordings Archive (ZIP)", z_buf.getvalue(), "Amhara_ME_Audios.zip", use_container_width=True)
 
             st.divider()
 
             st.subheader("🗑️ Cleanse Datasets Control System")
             st.warning("Critical Warning: Confirming this option completely clears your CSV text database file from GitHub.")
             if st.button("PERMANENTLY FLUSH CLOUD REPOSITORY RECORDS", type="primary", use_container_width=True):
-                # Delete all audio files first
-                with st.spinner("Deleting audio files..."):
-                    for idx, row in df.iterrows():
-                        audio_fn = str(row.get('Audio Filename', '')).strip()
-                        if audio_fn and audio_fn != "":
-                            delete_audio_from_github(audio_fn)
                 empty_df = pd.DataFrame(columns=EXPECTED_COLS)
                 if save_data_to_github(empty_df):
                     st.success("Cloud spreadsheets successfully wiped from repository layout.")

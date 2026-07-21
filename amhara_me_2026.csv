@@ -1,1 +1,2 @@
-user-name,  Farmer Name,Woreda Zone, Kebele Locality,Phone Link Contact id ??,Audio Recording, Memo timestamp
+id,timestamp,user-name,Farmer Name,Woreda Zone,Kebele Locality,Phone Link Contact,Audio Base64
+1,2026-07-21 13:38:00,AA,dkjfg;ef,;kjdfnjd,;kdfou,ourhu,

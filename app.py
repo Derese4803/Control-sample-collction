@@ -45,7 +45,6 @@ def fetch_data_from_github() -> pd.DataFrame:
     return pd.DataFrame(columns=["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"])
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
-    \"\"\"Overwrites or appends data rows to your repository spreadsheet\"\"\"
     headers = get_github_headers()
     if not headers: 
         return False

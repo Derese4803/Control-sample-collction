@@ -62,9 +62,28 @@ def fetch_data_from_github() -> pd.DataFrame:
             # Now safe to parse CSV
             try:
                 df = pd.read_csv(io.StringIO(content))
-                if df.empty and len(df.columns) == 0:
-                    return pd.DataFrame(columns=EXPECTED_COLS)
-                return df
+                
+                # FIX: If columns don't match expected, force correct headers
+                actual_cols = [str(c).strip() for c in df.columns]
+                expected_set = set(EXPECTED_COLS)
+                actual_set = set(actual_cols)
+                
+                if actual_set != expected_set:
+                    # Try re-reading with proper column names
+                    df = pd.read_csv(io.StringIO(content), names=EXPECTED_COLS, header=0)
+                    # If first row is garbage, skip it
+                    if len(df) > 0:
+                        first_id = str(df.iloc[0].get('id', '')).strip()
+                        if first_id == '' or not first_id.isdigit():
+                            df = pd.read_csv(io.StringIO(content), names=EXPECTED_COLS, skiprows=1)
+                
+                # Ensure all expected columns exist
+                for col in EXPECTED_COLS:
+                    if col not in df.columns:
+                        df[col] = ''
+                        
+                return df[EXPECTED_COLS]
+                
             except pd.errors.EmptyDataError:
                 return pd.DataFrame(columns=EXPECTED_COLS)
 

@@ -204,23 +204,23 @@ elif st.session_state["page"] == "Data":
             m1, m2, m3 = st.columns(3)
             m1.metric("📋 Total Records", total_records)
             m2.metric("🎤 Audio Attachments", audio_count)
-            m3.metric("👥 Active Agents", df["user-name"].nunique() if "user-name" in df.columns else 0)
+            m3.metric("👥 Active User", df["user-name"].nunique() if "user-name" in df.columns else 0)
             
             st.divider()
             
             # Per-user breakdown
-            st.subheader("👤 Agent Performance Breakdown")
+            st.subheader("👤 User Performance Breakdown")
             if "user-name" in df.columns:
                 user_stats = df.groupby("user-name").agg(
                     Records=("id", "count"),
                     Audio_Submissions=("Audio Recording Memo", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum())
                 ).reset_index()
-                user_stats.columns = ["Agent Name", "Records Entered", "Audio Uploaded"]
+                user_stats.columns = ["User Name", "Records Entered", "Audio Uploaded"]
                 user_stats = user_stats.sort_values("Records Entered", ascending=False)
                 st.dataframe(user_stats, use_container_width=True, hide_index=True)
                 
                 # Simple bar chart
-                st.bar_chart(user_stats.set_index("Agent Name")["Records Entered"])
+                st.bar_chart(user_stats.set_index("User Name")["Records Entered"])
             
             st.divider()
             

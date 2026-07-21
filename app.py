@@ -13,9 +13,10 @@ from io import BytesIO
 GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "control-sample-collction"
 CSV_FILENAME = "amhara_me_2026.csv"
+AUDIO_FOLDER = "audio"
 
 # Expected columns for empty/new file
-EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"]
+EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Filename"]
 
 # ============================================================================
 # CLOUD DATABASE STORAGE CORE LOGIC (GITHUB API)
@@ -41,33 +42,24 @@ def fetch_data_from_github() -> pd.DataFrame:
     try:
         response = requests.get(url, headers=headers, timeout=10)
 
-        # File doesn't exist yet
         if response.status_code == 404:
             return pd.DataFrame(columns=EXPECTED_COLS)
 
         if response.status_code == 200:
             content = base64.b64decode(response.json()['content']).decode('utf-8')
 
-            # Completely empty file
             if not content or not content.strip():
                 return pd.DataFrame(columns=EXPECTED_COLS)
 
-            # Parse CSV
             try:
                 df = pd.read_csv(io.StringIO(content))
-                
-                # CRITICAL FIX: Check if header columns match expected
                 actual_cols = [str(c).strip().lower() for c in df.columns]
                 expected_cols_lower = [c.lower() for c in EXPECTED_COLS]
                 
-                # If columns don't match at all, file is corrupted — treat as empty
                 if set(actual_cols) != set(expected_cols_lower):
                     return pd.DataFrame(columns=EXPECTED_COLS)
                 
-                # Ensure column names match exactly (case-sensitive)
                 df.columns = EXPECTED_COLS
-                
-                # Drop rows where id is missing or not a number
                 df = df.dropna(subset=['id'])
                 df = df[df['id'].astype(str).str.strip() != '']
                 
@@ -118,10 +110,75 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
         st.error(f"Network error during upload: {str(e)}")
         return False
 
-def to_b64(file):
-    if file:
-        return base64.b64encode(file.getvalue()).decode()
-    return ""
+def upload_audio_to_github(filename: str, file_bytes: bytes) -> bool:
+    """Uploads audio file separately to audio/ folder in repo"""
+    headers = get_github_headers()
+    if not headers:
+        return False
+
+    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{AUDIO_FOLDER}/{filename}"
+
+    encoded_data = base64.b64encode(file_bytes).decode()
+
+    payload = {
+        "message": f"Audio upload - {filename}",
+        "content": encoded_data,
+        "branch": "main"
+    }
+    
+    try:
+        res = requests.put(url, headers=headers, json=payload, timeout=30)
+        return res.status_code in [200, 201]
+    except Exception as e:
+        st.error(f"Audio upload error: {str(e)}")
+        return False
+
+def fetch_audio_from_github(filename: str) -> bytes:
+    """Downloads audio file from audio/ folder"""
+    headers = get_github_headers()
+    if not headers:
+        return b""
+
+    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{AUDIO_FOLDER}/{filename}"
+
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code == 200:
+            return base64.b64decode(response.json()['content'])
+    except Exception:
+        pass
+    return b""
+
+def delete_audio_from_github(filename: str) -> bool:
+    """Deletes audio file from audio/ folder"""
+    headers = get_github_headers()
+    if not headers:
+        return False
+
+    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{AUDIO_FOLDER}/{filename}"
+
+    sha = None
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            sha = response.json().get('sha')
+    except Exception:
+        pass
+
+    if not sha:
+        return True
+
+    payload = {
+        "message": f"Delete audio - {filename}",
+        "sha": sha,
+        "branch": "main"
+    }
+
+    try:
+        res = requests.delete(url, headers=headers, json=payload, timeout=10)
+        return res.status_code in [200, 204]
+    except Exception:
+        return False
 
 # ============================================================================
 # STATE ROUTING MANAGEMENT
@@ -183,6 +240,16 @@ elif st.session_state["page"] == "Reg":
                         except:
                             next_id = len(df) + 1
                         
+                        # Upload audio separately if provided
+                        audio_filename = ""
+                        if audio is not None:
+                            safe_name = str(f_name).replace(' ', '_').replace('/', '_')[:30]
+                            audio_filename = f"ID_{next_id}_{safe_name}.{audio.name.split(".")[-1]}"
+                            audio_bytes = audio.getvalue()
+                            if not upload_audio_to_github(audio_filename, audio_bytes):
+                                st.warning("⚠️ Audio upload failed, but metadata will still be saved.")
+                                audio_filename = ""
+                        
                         new_entry = pd.DataFrame([{
                             "id": next_id,
                             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -191,7 +258,7 @@ elif st.session_state["page"] == "Reg":
                             "Woreda Zone": woreda,
                             "Kebele Locality": kebele,
                             "Phone Link Contact": phone,
-                            "Audio Recording Memo": to_b64(audio)
+                            "Audio Filename": audio_filename
                         }])
                         
                         updated_df = pd.concat([df, new_entry], ignore_index=True)
@@ -239,8 +306,8 @@ elif st.session_state["page"] == "Data":
             
             total_records = len(df)
             audio_count = 0
-            if "Audio Recording Memo" in df.columns:
-                audio_count = df["Audio Recording Memo"].apply(lambda x: pd.notna(x) and str(x).strip() != "").sum()
+            if "Audio Filename" in df.columns:
+                audio_count = df["Audio Filename"].apply(lambda x: pd.notna(x) and str(x).strip() != "").sum()
             
             # Metrics cards
             m1, m2, m3 = st.columns(3)
@@ -255,7 +322,7 @@ elif st.session_state["page"] == "Data":
             if "user-name" in df.columns:
                 user_stats = df.groupby("user-name").agg(
                     Records=("id", "count"),
-                    Audio_Submissions=("Audio Recording Memo", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum())
+                    Audio_Submissions=("Audio Filename", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum())
                 ).reset_index()
                 user_stats.columns = ["Agent Name", "Records Entered", "Audio Uploaded"]
                 user_stats = user_stats.sort_values("Records Entered", ascending=False)
@@ -269,21 +336,17 @@ elif st.session_state["page"] == "Data":
             st.subheader("📥 Cloud Data Packages Extraction Modules")
             c1, c2 = st.columns(2)
             
-            display_df = df.drop(columns=["Audio Recording Memo"]) if "Audio Recording Memo" in df.columns else df
-            c1.download_button("📥 Extract Metrics Sheet (CSV)", display_df.to_csv(index=False).encode('utf-8-sig'), "Amhara_ME_Data_2026.csv", use_container_width=True)
+            c1.download_button("📥 Extract Metrics Sheet (CSV)", df.to_csv(index=False).encode('utf-8-sig'), "Amhara_ME_Data_2026.csv", use_container_width=True)
             
-            with st.spinner("Decoding audio binary streams from database..."):
+            with st.spinner("Packing audio files from cloud..."):
                 z_buf = BytesIO()
                 with zipfile.ZipFile(z_buf, "w") as zf:
                     for idx, row in df.iterrows():
-                        audio_str = row.get('Audio Recording Memo', '')
-                        if pd.notna(audio_str) and str(audio_str).strip() != "":
-                            try:
-                                binary_audio = base64.b64decode(audio_str)
-                                farmer_name = str(row.get('Farmer Name', f'Unknown_{idx}')).replace(' ', '_')
-                                zf.writestr(f"ID_{row.get('id', idx)}_{farmer_name}.mp3", binary_audio)
-                            except:
-                                pass
+                        audio_fn = str(row.get('Audio Filename', '')).strip()
+                        if audio_fn and audio_fn != "":
+                            audio_bytes = fetch_audio_from_github(audio_fn)
+                            if audio_bytes:
+                                zf.writestr(audio_fn, audio_bytes)
             c2.download_button("🎤 Extract Voice Recordings Archive (ZIP)", z_buf.getvalue(), "Amhara_ME_Audios.zip", use_container_width=True)
 
             st.divider()
@@ -291,6 +354,12 @@ elif st.session_state["page"] == "Data":
             st.subheader("🗑️ Cleanse Datasets Control System")
             st.warning("Critical Warning: Confirming this option completely clears your CSV text database file from GitHub.")
             if st.button("PERMANENTLY FLUSH CLOUD REPOSITORY RECORDS", type="primary", use_container_width=True):
+                # Delete all audio files first
+                with st.spinner("Deleting audio files..."):
+                    for idx, row in df.iterrows():
+                        audio_fn = str(row.get('Audio Filename', '')).strip()
+                        if audio_fn and audio_fn != "":
+                            delete_audio_from_github(audio_fn)
                 empty_df = pd.DataFrame(columns=EXPECTED_COLS)
                 if save_data_to_github(empty_df):
                     st.success("Cloud spreadsheets successfully wiped from repository layout.")

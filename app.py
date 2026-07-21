@@ -10,15 +10,16 @@ from io import BytesIO
 # ============================================================================
 # GITHUB ENVIRONMENT CONFIGURATION
 # ============================================================================
-GITHUB_OWNER = "Derese4803"                 
+GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "control-sample-collction"
-CSV_FILENAME = "amhara_me_2026.csv"         
+CSV_FILENAME = "amhara_me_2026.csv"
 
 # ============================================================================
 # CLOUD DATABASE STORAGE CORE LOGIC (GITHUB API)
 # ============================================================================
 
 def get_github_headers():
+    """Retrieves authentication token securely from Streamlit Secret Manager"""
     token = st.secrets.get("github", {}).get("token")
     if not token:
         st.error("❌ GitHub token missing in .streamlit/secrets.toml!")
@@ -29,10 +30,11 @@ def get_github_headers():
     }
 
 def fetch_data_from_github() -> pd.DataFrame:
+    """Downloads the current CSV database file straight from your repository"""
     headers = get_github_headers()
-    if not headers: 
+    if not headers:
         return pd.DataFrame()
-    
+
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -45,24 +47,25 @@ def fetch_data_from_github() -> pd.DataFrame:
     return pd.DataFrame(columns=["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"])
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
+    """Overwrites or appends data rows to your repository spreadsheet"""
     headers = get_github_headers()
-    if not headers: 
+    if not headers:
         return False
-    
+
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
-    
+
     response = requests.get(url, headers=headers)
     sha = response.json()['sha'] if response.status_code == 200 else None
-    
+
     csv_data = updated_df.to_csv(index=False)
     encoded_data = base64.b64encode(csv_data.encode()).decode()
-    
+
     payload = {
         "message": f"Survey Sync - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
         "content": encoded_data,
-        "branch": "main"  
+        "branch": "main"
     }
-    if sha: 
+    if sha:
         payload["sha"] = sha
         
     try:
@@ -73,8 +76,8 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
         return False
 
 def to_b64(file):
-    \"\"\"Encodes standard uploaded media binaries safely into flat strings\"\"\"
-    if file: 
+    """Encodes standard uploaded media binaries safely into flat strings"""
+    if file:
         return base64.b64encode(file.getvalue()).decode()
     return ""
 
@@ -95,14 +98,14 @@ def nav(p):
 if st.session_state["page"] == "Home":
     st.title("🌾 Amhara M&E Survey 2026")
     
-    if st.session_state["editor"]:
+    if st.session_state['editor']:
         st.success(f"👤 Active Editor: **{st.session_state['editor']}**")
     
     st.divider()
     col1, col2 = st.columns(2)
-    if col1.button("📝 NEW REGISTRATION", use_container_width=True, type="primary"): 
+    if col1.button("📝 NEW REGISTRATION", use_container_width=True, type="primary"):
         nav("Reg")
-    if col2.button("📊 ADMIN DASHBOARD", use_container_width=True): 
+    if col2.button("📊 ADMIN DASHBOARD", use_container_width=True):
         nav("Data")
 
 # ============================================================================
@@ -111,13 +114,13 @@ if st.session_state["page"] == "Home":
 elif st.session_state["page"] == "Reg":
     st.button("⬅️ Back to Home Layout", on_click=lambda: nav("Home"))
     
-    if not st.session_state["editor"]:
+    if not st.session_state['editor']:
         with st.container(border=True):
             st.subheader("Field Agent Authentication")
             name_in = st.text_input("Registered By (Your Full Name):")
             if st.button("Initialize Terminal Session"):
                 if name_in.strip():
-                    st.session_state["editor"] = name_in.strip()
+                    st.session_state['editor'] = name_in.strip()
                     st.rerun()
     else:
         with st.form("reg_form", clear_on_submit=True):
@@ -163,11 +166,11 @@ elif st.session_state["page"] == "Reg":
 elif st.session_state["page"] == "Data":
     st.button("⬅️ Back to Home Layout", on_click=lambda: nav("Home"))
     
-    if not st.session_state["auth"]:
+    if not st.session_state['auth']:
         st.header("🔒 Executive Access Verification")
         pass_input = st.text_input("Enter Root Passcode Token", type="password")
         if st.button("Validate Security Token"):
-            if pass_input == "oaf2026": 
+            if pass_input == "oaf2026":
                 st.session_state["auth"] = True
                 st.rerun()
             else:
@@ -235,7 +238,7 @@ elif st.session_state["page"] == "Data":
                         if pd.notna(audio_str) and str(audio_str).strip() != "":
                             try:
                                 binary_audio = base64.b64decode(audio_str)
-                                farmer_name = str(row.get('Farmer Name', f'Unknown_{idx}')).replace(" ", "_")
+                                farmer_name = str(row.get('Farmer Name', f'Unknown_{idx}')).replace(' ', '_')
                                 zf.writestr(f"ID_{row.get('id', idx)}_{farmer_name}.mp3", binary_audio)
                             except:
                                 pass
@@ -252,19 +255,3 @@ elif st.session_state["page"] == "Data":
                     st.rerun()
         else:
             st.info("No surveyor records are currently stored inside your remote GitHub cloud database file.")
-"""
-
-# Write with raw string to avoid escaping issues
-with open('/mnt/agents/output/app.py', 'w', encoding='utf-8') as f:
-    f.write(app_code)
-
-# Verify it's valid Python
-import ast
-try:
-    with open('/mnt/agents/output/app.py', 'r', encoding='utf-8') as f:
-        code = f.read()
-    ast.parse(code)
-    print("✅ Syntax valid! File saved.")
-    print(f"Total lines: {len(code.splitlines())}")
-except SyntaxError as e:
-    print(f"❌ Syntax error: {e}")

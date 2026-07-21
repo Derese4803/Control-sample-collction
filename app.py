@@ -4,6 +4,7 @@ import base64
 import zipfile
 import datetime
 import io
+import re
 import requests
 from io import BytesIO
 
@@ -14,7 +15,6 @@ GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "control-sample-collction"
 CSV_FILENAME = "amhara_me_2026.csv"
 
-# Expected columns - CSV only stores metadata + audio filename reference
 EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio File"]
 
 # ============================================================================
@@ -27,7 +27,6 @@ def get_github_headers():
         st.error("❌ GitHub token missing in .streamlit/secrets.toml!")
         return None
     
-    # Universal support for fine-grained or classic tokens
     auth_prefix = "Bearer" if str(token).startswith("github_pat_") else "token"
     return {
         "Authorization": f"{auth_prefix} {token}",
@@ -45,30 +44,24 @@ def fetch_data_from_github() -> pd.DataFrame:
     try:
         response = requests.get(url, headers=headers, timeout=10)
 
-        if response.status_code == 404:
-            return pd.DataFrame(columns=EXPECTED_COLS)
-
         if response.status_code == 200:
             raw_content = response.json().get('content', '')
             if not raw_content:
                 return pd.DataFrame(columns=EXPECTED_COLS)
                 
-            content = base64.b64decode(raw_content).decode('utf-8')
+            clean_b64 = raw_content.replace("\n", "").replace("\r", "").strip()
+            content = base64.b64decode(clean_b64).decode('utf-8', errors='ignore')
 
             if not content or not content.strip():
                 return pd.DataFrame(columns=EXPECTED_COLS)
 
             try:
                 df = pd.read_csv(io.StringIO(content))
-                
-                # Check if DataFrame is valid and has expected columns
                 if df.empty:
                     return pd.DataFrame(columns=EXPECTED_COLS)
                     
-                # Standardize column headers
                 df.columns = [str(c).strip() for c in df.columns]
                 
-                # Align or enforce expected columns
                 for col in EXPECTED_COLS:
                     if col not in df.columns:
                         df[col] = ""
@@ -76,7 +69,6 @@ def fetch_data_from_github() -> pd.DataFrame:
                 df = df[EXPECTED_COLS]
                 df = df.dropna(subset=['id'])
                 df = df[df['id'].astype(str).str.strip() != '']
-                
                 return df
                 
             except Exception:
@@ -90,12 +82,7 @@ def fetch_data_from_github() -> pd.DataFrame:
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
     """Saves CSV to GitHub safely."""
     headers = get_github_headers()
-    if not headers:
-        return False
-
-    # Safety Guard: Never write a completely malformed/empty dataset unless intentional
-    if updated_df is None or not isinstance(updated_df, pd.DataFrame):
-        st.error("❌ Refused to save corrupted DataFrame object.")
+    if not headers or updated_df is None:
         return False
 
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
@@ -108,7 +95,6 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
     except Exception:
         pass
 
-    # Clean missing values before CSV string export
     export_df = updated_df[EXPECTED_COLS].fillna("")
     csv_data = export_df.to_csv(index=False)
     encoded_data = base64.b64encode(csv_data.encode('utf-8')).decode('utf-8')
@@ -123,24 +109,19 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
         
     try:
         res = requests.put(url, headers=headers, json=payload, timeout=15)
-        if res.status_code in [200, 201]:
-            return True
-        else:
-            st.error(f"GitHub API error: {res.status_code} - {res.text}")
-            return False
+        return res.status_code in [200, 201]
     except Exception as e:
-        st.error(f"Network error during upload: {str(e)}")
+        st.error(f"Network error during CSV upload: {str(e)}")
         return False
 
 def upload_file_to_github(filename: str, file_bytes: bytes) -> bool:
-    """Uploads binary audio file to GitHub repo root."""
+    """Uploads binary audio file to GitHub repo root with proper Base64 formatting."""
     headers = get_github_headers()
     if not headers:
         return False
 
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{filename}"
 
-    # Get SHA if file already exists to avoid 409 Conflict
     sha = None
     try:
         check_res = requests.get(url, headers=headers, timeout=10)
@@ -167,19 +148,41 @@ def upload_file_to_github(filename: str, file_bytes: bytes) -> bool:
         return False
 
 def fetch_file_from_github(filename: str) -> bytes:
-    """Downloads binary file from repo root."""
+    """Robust binary download with Base64 cleaning and raw direct URL fallback."""
     headers = get_github_headers()
     if not headers:
         return b""
 
+    filename = str(filename).strip()
+    if not filename or filename.lower() in ["nan", "none"]:
+        return b""
+
+    # 1. Primary Attempt via Contents API
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{filename}"
 
     try:
         response = requests.get(url, headers=headers, timeout=30)
         if response.status_code == 200:
-            return base64.b64decode(response.json()['content'])
+            json_data = response.json()
+            if "content" in json_data and json_data.get("encoding") == "base64":
+                clean_b64 = json_data["content"].replace("\n", "").replace("\r", "").replace(" ", "").strip()
+                return base64.b64decode(clean_b64)
+            elif "download_url" in json_data and json_data["download_url"]:
+                raw_res = requests.get(json_data["download_url"], headers=headers, timeout=30)
+                if raw_res.status_code == 200:
+                    return raw_res.content
     except Exception:
         pass
+
+    # 2. Secondary Direct Raw Fallback Attempt
+    raw_fallback_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/{filename}"
+    try:
+        raw_res = requests.get(raw_fallback_url, headers=headers, timeout=30)
+        if raw_res.status_code == 200:
+            return raw_res.content
+    except Exception:
+        pass
+
     return b""
 
 def delete_file_from_github(filename: str) -> bool:
@@ -266,34 +269,33 @@ elif st.session_state["page"] == "Reg":
             if st.form_submit_button("Save Registration Metadata"):
                 if f_name and woreda and kebele:
                     with st.spinner("Processing transaction package to cloud..."):
-                        # 1. Pull latest current DataFrame state safely
                         df = fetch_data_from_github()
                         
-                        # Calculate robust Next ID
                         if not df.empty and "id" in df.columns:
                             valid_ids = pd.to_numeric(df["id"], errors='coerce').dropna()
                             next_id = int(valid_ids.max() + 1) if not valid_ids.empty else 1
                         else:
                             next_id = 1
                         
-                        # 2. Process audio upload separately
+                        # CLEAN FILENAME: Strip slashes, spaces, and special characters!
                         audio_filename = ""
                         if audio is not None:
-                            safe_name = "".join([c for c in f_name if c.isalnum() or c in ('_', '-')])[:20]
-                            ext = audio.name.split(".")[-1] if "." in audio.name else "mp3"
-                            audio_filename = f"audio_ID{next_id}_{safe_name}.{ext}"
+                            clean_farmer_name = re.sub(r'[^a-zA-Z0-9]', '', str(f_name))[:15]
+                            if not clean_farmer_name:
+                                clean_farmer_name = "farmer"
+                            ext = audio.name.split(".")[-1] if "." in audio.name else "m4a"
+                            audio_filename = f"audio_ID{next_id}_{clean_farmer_name}.{ext}"
                             audio_bytes = audio.getvalue()
                             
-                            st.info(f"📤 Uploading {len(audio_bytes):,} bytes audio...")
+                            st.info(f"📤 Uploading {len(audio_bytes):,} bytes as `{audio_filename}`...")
                             upload_success = upload_file_to_github(audio_filename, audio_bytes)
                             
                             if upload_success:
-                                st.success(f"✅ Audio file committed: {audio_filename}")
+                                st.success(f"✅ Audio file saved to GitHub: `{audio_filename}`")
                             else:
-                                st.warning("⚠️ Audio file upload failed, but logging text record...")
+                                st.error("❌ Audio upload failed. Saving record without audio link.")
                                 audio_filename = ""
 
-                        # 3. Formulate new record entry
                         new_row = {
                             "id": next_id,
                             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -306,14 +308,8 @@ elif st.session_state["page"] == "Reg":
                         }
                         
                         new_entry_df = pd.DataFrame([new_row])
+                        updated_df = new_entry_df if df.empty else pd.concat([df, new_entry_df], ignore_index=True)
                         
-                        # 4. Safe concat with column enforcing
-                        if df.empty:
-                            updated_df = new_entry_df
-                        else:
-                            updated_df = pd.concat([df, new_entry_df], ignore_index=True)
-                        
-                        # 5. Push non-corrupted CSV to GitHub
                         if save_data_to_github(updated_df):
                             st.success(f"✅ Sync Successful! Record #{next_id} logged for {f_name}.")
                         else:
@@ -345,11 +341,7 @@ elif st.session_state["page"] == "Data":
             st.session_state["auth"] = False
             st.rerun()
 
-        has_records = False
         if not df.empty and len(df) > 0:
-            has_records = True
-
-        if has_records:
             st.subheader("📈 Survey Analytics Overview")
             
             total_records = len(df)
@@ -364,38 +356,47 @@ elif st.session_state["page"] == "Data":
             
             st.divider()
             
-            st.subheader("👤 Agent Performance Breakdown")
-            if "user-name" in df.columns:
-                user_stats = df.groupby("user-name").agg(
-                    Records=("id", "count"),
-                    Audio_Files=("Audio File", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum())
-                ).reset_index()
-                user_stats.columns = ["Agent Name", "Records Entered", "Audio Files"]
-                user_stats = user_stats.sort_values("Records Entered", ascending=False)
-                st.dataframe(user_stats, use_container_width=True, hide_index=True)
-                st.bar_chart(user_stats.set_index("Agent Name")["Records Entered"])
+            st.subheader("📋 Raw Data View")
+            st.dataframe(df, use_container_width=True)
             
             st.divider()
             
-            st.subheader("📥 Cloud Data Packages Extraction Modules")
+            st.subheader("📥 Data Package Extraction")
             c1, c2 = st.columns(2)
             
             display_df = df.drop(columns=["Audio File"], errors="ignore")
-            c1.download_button("📥 Extract Metrics Sheet (CSV)", display_df.to_csv(index=False).encode('utf-8-sig'), "Amhara_ME_Data_2026.csv", use_container_width=True)
+            c1.download_button("📥 Extract CSV Sheet", display_df.to_csv(index=False).encode('utf-8-sig'), "Amhara_ME_Data_2026.csv", use_container_width=True)
             
-            with st.spinner("Packing audio files..."):
-                z_buf = BytesIO()
-                with zipfile.ZipFile(z_buf, "w") as zf:
-                    audio_found = 0
-                    for idx, row in df.iterrows():
-                        audio_fn = str(row.get('Audio File', '')).strip()
-                        if audio_fn and audio_fn != "nan":
-                            audio_bytes = fetch_file_from_github(audio_fn)
-                            if audio_bytes and len(audio_bytes) > 0:
-                                zf.writestr(audio_fn, audio_bytes)
-                                audio_found += 1
-                                
-            c2.download_button("🎤 Extract Audio Recordings (ZIP)", z_buf.getvalue(), "Amhara_ME_Audios.zip", use_container_width=True)
+            # ZIP Packaging with detailed status checking
+            z_buf = BytesIO()
+            audio_found = 0
+            audio_missing = 0
+            
+            with st.spinner("Preparing Audio ZIP Package..."):
+                with zipfile.ZipFile(z_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    if "Audio File" in df.columns:
+                        for idx, row in df.iterrows():
+                            audio_fn = str(row.get('Audio File', '')).strip()
+                            if audio_fn and audio_fn.lower() not in ["nan", "none", ""]:
+                                audio_bytes = fetch_file_from_github(audio_fn)
+                                if audio_bytes and len(audio_bytes) > 0:
+                                    zf.writestr(audio_fn, audio_bytes)
+                                    audio_found += 1
+                                else:
+                                    audio_missing += 1
+
+            if audio_found > 0:
+                st.success(f"✅ {audio_found} audio file(s) successfully packed into ZIP!")
+            if audio_missing > 0:
+                st.warning(f"⚠️ {audio_missing} audio file(s) recorded in CSV were not found on GitHub.")
+
+            c2.download_button(
+                label=f"🎤 Extract Audio Recordings ZIP ({audio_found} Ready)", 
+                data=z_buf.getvalue(), 
+                file_name="Amhara_ME_Audios.zip", 
+                mime="application/zip",
+                use_container_width=True
+            )
 
             st.divider()
 
@@ -404,11 +405,11 @@ elif st.session_state["page"] == "Data":
             if st.button("PERMANENTLY FLUSH ALL RECORDS", type="primary", use_container_width=True):
                 for idx, row in df.iterrows():
                     audio_fn = str(row.get('Audio File', '')).strip()
-                    if audio_fn and audio_fn != "nan":
+                    if audio_fn and audio_fn.lower() not in ["nan", "none", ""]:
                         delete_file_from_github(audio_fn)
                 empty_df = pd.DataFrame(columns=EXPECTED_COLS)
                 if save_data_to_github(empty_df):
-                    st.success("All records wiped.")
+                    st.success("All records wiped successfully.")
                     st.rerun()
         else:
             st.info("No surveyor records are currently stored inside your remote GitHub cloud database file.")

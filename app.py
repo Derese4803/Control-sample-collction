@@ -127,7 +127,11 @@ def upload_audio_to_github(filename: str, file_bytes: bytes) -> bool:
     
     try:
         res = requests.put(url, headers=headers, json=payload, timeout=30)
-        return res.status_code in [200, 201]
+        if res.status_code in [200, 201]:
+            return True
+        else:
+            st.error(f"Audio upload failed: {res.status_code} - {res.text}")
+            return False
     except Exception as e:
         st.error(f"Audio upload error: {str(e)}")
         return False
@@ -246,8 +250,11 @@ elif st.session_state["page"] == "Reg":
                             ext = audio.name.split(".")[-1] if "." in audio.name else "mp3"
                             audio_filename = f"ID_{next_id}_{safe_name}.{ext}"
                             audio_bytes = audio.getvalue()
-                            if not upload_audio_to_github(audio_filename, audio_bytes):
-                                st.warning("⚠️ Audio upload failed, but metadata will still be saved.")
+                            st.info(f"Uploading audio: {audio_filename} ({len(audio_bytes)} bytes)")
+                            if upload_audio_to_github(audio_filename, audio_bytes):
+                                st.success(f"✅ Audio uploaded: {audio_filename}")
+                            else:
+                                st.error(f"❌ Audio upload failed for {audio_filename}")
                                 audio_filename = ""
                         
                         new_entry = pd.DataFrame([{
@@ -355,6 +362,10 @@ elif st.session_state["page"] == "Data":
                     
                     if audio_missing > 0:
                         st.warning(f"⚠️ {audio_missing} audio file(s) missing from cloud. Only {audio_found} included in ZIP.")
+                    elif audio_found == 0 and audio_missing == 0:
+                        st.info("ℹ️ No audio files recorded yet.")
+                    else:
+                        st.success(f"✅ {audio_found} audio file(s) packed in ZIP.")
             c2.download_button("🎤 Extract Voice Recordings Archive (ZIP)", z_buf.getvalue(), "Amhara_ME_Audios.zip", use_container_width=True)
 
             st.divider()

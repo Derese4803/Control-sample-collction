@@ -157,7 +157,6 @@ def fetch_file_from_github(filename: str) -> bytes:
     if not filename or filename.lower() in ["nan", "none"]:
         return b""
 
-    # 1. Primary Attempt via Contents API
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{filename}"
 
     try:
@@ -174,7 +173,6 @@ def fetch_file_from_github(filename: str) -> bytes:
     except Exception:
         pass
 
-    # 2. Secondary Direct Raw Fallback Attempt
     raw_fallback_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/{filename}"
     try:
         raw_res = requests.get(raw_fallback_url, headers=headers, timeout=30)
@@ -277,7 +275,6 @@ elif st.session_state["page"] == "Reg":
                         else:
                             next_id = 1
                         
-                        # CLEAN FILENAME: Strip slashes, spaces, and special characters!
                         audio_filename = ""
                         if audio is not None:
                             clean_farmer_name = re.sub(r'[^a-zA-Z0-9]', '', str(f_name))[:15]
@@ -318,7 +315,7 @@ elif st.session_state["page"] == "Reg":
                     st.error("Name, Woreda, and Kebele are mandatory.")
 
 # ============================================================================
-# INTERFACE: ADMINISTRATIVE COMPLIANCE PANELS
+# INTERFACE: ADMINISTRATIVE COMPLIANCE & ANALYTICS PANELS
 # ============================================================================
 elif st.session_state["page"] == "Data":
     st.button("⬅️ Back to Home Layout", on_click=lambda: nav("Home"))
@@ -336,38 +333,88 @@ elif st.session_state["page"] == "Data":
         df = fetch_data_from_github()
         
         col_t, col_l = st.columns([8, 2])
-        col_t.header("📊 Admin Management Station")
+        col_t.header("📊 Admin Management & Analytics Panel")
         if col_l.button("🔒 Lock Portal"):
             st.session_state["auth"] = False
             st.rerun()
 
         if not df.empty and len(df) > 0:
-            st.subheader("📈 Survey Analytics Overview")
+            # ----------------------------------------------------------------
+            # 1. TOP OVERVIEW METRICS
+            # ----------------------------------------------------------------
+            st.subheader("📈 Overall System Metrics")
             
             total_records = len(df)
-            audio_count = 0
-            if "Audio File" in df.columns:
-                audio_count = df["Audio File"].apply(lambda x: pd.notna(x) and str(x).strip() != "").sum()
             
-            m1, m2, m3 = st.columns(3)
+            # Count records with a non-empty audio filename
+            has_audio_mask = df["Audio File"].apply(
+                lambda x: pd.notna(x) and str(x).strip() != "" and str(x).strip().lower() not in ["nan", "none"]
+            )
+            total_audio = has_audio_mask.sum()
+            
+            # Count unique agents/users
+            unique_users = df["user-name"].nunique() if "user-name" in df.columns else 0
+            
+            # Audio completion rate
+            audio_ratio = (total_audio / total_records * 100) if total_records > 0 else 0
+            
+            m1, m2, m3, m4 = st.columns(4)
             m1.metric("📋 Total Records", total_records)
-            m2.metric("🎤 Audio Files", audio_count)
-            m3.metric("👥 Active Agents", df["user-name"].nunique() if "user-name" in df.columns else 0)
+            m2.metric("🎤 Total Audio Files", total_audio)
+            m3.metric("👥 Active Field Agents", unique_users)
+            m4.metric("📊 Audio Coverage Rate", f"{audio_ratio:.1f}%")
             
             st.divider()
+
+            # ----------------------------------------------------------------
+            # 2. USER PERFORMANCE BREAKDOWN (WHICH USER -> HOW MANY DATA & AUDIO)
+            # ----------------------------------------------------------------
+            st.subheader("👥 Agent Activity & Audio Breakdown")
             
-            st.subheader("📋 Raw Data View")
+            if "user-name" in df.columns:
+                # Group data by user-name
+                user_summary = df.groupby("user-name").agg(
+                    Total_Data=("id", "count"),
+                    Total_Audio=("Audio File", lambda x: x.apply(
+                        lambda v: pd.notna(v) and str(v).strip() != "" and str(v).strip().lower() not in ["nan", "none"]
+                    ).sum())
+                ).reset_index()
+                
+                user_summary["Audio Coverage (%)"] = (user_summary["Total_Audio"] / user_summary["Total_Data"] * 100).round(1)
+                user_summary.columns = ["Agent Name (User)", "Total Data Logged", "Total Audio Files", "Audio Coverage (%)"]
+                user_summary = user_summary.sort_values("Total Data Logged", ascending=False)
+                
+                # Display Summary Table
+                st.dataframe(user_summary, use_container_width=True, hide_index=True)
+                
+                # Comparative Visual Charts
+                c_chart1, c_chart2 = st.columns(2)
+                with c_chart1:
+                    st.markdown("**📋 Data Logged Per Agent**")
+                    st.bar_chart(user_summary.set_index("Agent Name (User)")["Total Data Logged"])
+                with c_chart2:
+                    st.markdown("**🎤 Audio Uploads Per Agent**")
+                    st.bar_chart(user_summary.set_index("Agent Name (User)")["Total Audio Files"])
+
+            st.divider()
+            
+            # ----------------------------------------------------------------
+            # 3. RAW DATA GRID VIEW
+            # ----------------------------------------------------------------
+            st.subheader("📋 Complete Dataset Explorer")
             st.dataframe(df, use_container_width=True)
             
             st.divider()
             
+            # ----------------------------------------------------------------
+            # 4. EXPORT / DOWNLOAD MODULES
+            # ----------------------------------------------------------------
             st.subheader("📥 Data Package Extraction")
             c1, c2 = st.columns(2)
             
             display_df = df.drop(columns=["Audio File"], errors="ignore")
             c1.download_button("📥 Extract CSV Sheet", display_df.to_csv(index=False).encode('utf-8-sig'), "Amhara_ME_Data_2026.csv", use_container_width=True)
             
-            # ZIP Packaging with detailed status checking
             z_buf = BytesIO()
             audio_found = 0
             audio_missing = 0
@@ -400,6 +447,9 @@ elif st.session_state["page"] == "Data":
 
             st.divider()
 
+            # ----------------------------------------------------------------
+            # 5. DATASET FLUSH CONTROL
+            # ----------------------------------------------------------------
             st.subheader("🗑️ Cleanse Datasets Control System")
             st.warning("Critical Warning: This clears ALL data from GitHub.")
             if st.button("PERMANENTLY FLUSH ALL RECORDS", type="primary", use_container_width=True):

@@ -111,7 +111,6 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
         return False
 
 def upload_audio_to_github(filename: str, file_bytes: bytes) -> bool:
-    """Uploads audio file separately to audio/ folder in repo"""
     headers = get_github_headers()
     if not headers:
         return False
@@ -134,7 +133,6 @@ def upload_audio_to_github(filename: str, file_bytes: bytes) -> bool:
         return False
 
 def fetch_audio_from_github(filename: str) -> bytes:
-    """Downloads audio file from audio/ folder"""
     headers = get_github_headers()
     if not headers:
         return b""
@@ -145,12 +143,13 @@ def fetch_audio_from_github(filename: str) -> bytes:
         response = requests.get(url, headers=headers, timeout=30)
         if response.status_code == 200:
             return base64.b64decode(response.json()['content'])
-    except Exception:
-        pass
+        else:
+            st.warning(f"Audio file {filename} not found (status {response.status_code})")
+    except Exception as e:
+        st.warning(f"Error fetching audio {filename}: {str(e)}")
     return b""
 
 def delete_audio_from_github(filename: str) -> bool:
-    """Deletes audio file from audio/ folder"""
     headers = get_github_headers()
     if not headers:
         return False
@@ -244,7 +243,8 @@ elif st.session_state["page"] == "Reg":
                         audio_filename = ""
                         if audio is not None:
                             safe_name = str(f_name).replace(' ', '_').replace('/', '_')[:30]
-                            audio_filename = f"ID_{next_id}_{safe_name}.{audio.name.split(".")[-1]}"
+                            ext = audio.name.split(".")[-1] if "." in audio.name else "mp3"
+                            audio_filename = f"ID_{next_id}_{safe_name}.{ext}"
                             audio_bytes = audio.getvalue()
                             if not upload_audio_to_github(audio_filename, audio_bytes):
                                 st.warning("⚠️ Audio upload failed, but metadata will still be saved.")
@@ -341,12 +341,20 @@ elif st.session_state["page"] == "Data":
             with st.spinner("Packing audio files from cloud..."):
                 z_buf = BytesIO()
                 with zipfile.ZipFile(z_buf, "w") as zf:
+                    audio_found = 0
+                    audio_missing = 0
                     for idx, row in df.iterrows():
                         audio_fn = str(row.get('Audio Filename', '')).strip()
                         if audio_fn and audio_fn != "":
                             audio_bytes = fetch_audio_from_github(audio_fn)
-                            if audio_bytes:
+                            if audio_bytes and len(audio_bytes) > 0:
                                 zf.writestr(audio_fn, audio_bytes)
+                                audio_found += 1
+                            else:
+                                audio_missing += 1
+                    
+                    if audio_missing > 0:
+                        st.warning(f"⚠️ {audio_missing} audio file(s) missing from cloud. Only {audio_found} included in ZIP.")
             c2.download_button("🎤 Extract Voice Recordings Archive (ZIP)", z_buf.getvalue(), "Amhara_ME_Audios.zip", use_container_width=True)
 
             st.divider()

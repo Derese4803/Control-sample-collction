@@ -19,7 +19,6 @@ CSV_FILENAME = "amhara_me_2026.csv"
 # ============================================================================
 
 def get_github_headers():
-    \"\"\"Retrieves authentication token securely from Streamlit Secret Manager\"\"\"
     token = st.secrets.get("github", {}).get("token")
     if not token:
         st.error("❌ GitHub token missing in .streamlit/secrets.toml!")

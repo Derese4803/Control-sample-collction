@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import base64
@@ -190,6 +191,40 @@ elif st.session_state["page"] == "Data":
                 has_records = True
 
         if has_records:
+            # ================================================================
+            # ANALYTICS DASHBOARD
+            # ================================================================
+            st.subheader("📈 Survey Analytics Overview")
+            
+            total_records = len(df)
+            audio_count = 0
+            if "Audio Recording Memo" in df.columns:
+                audio_count = df["Audio Recording Memo"].apply(lambda x: pd.notna(x) and str(x).strip() != "").sum()
+            
+            # Metrics cards
+            m1, m2, m3 = st.columns(3)
+            m1.metric("📋 Total Records", total_records)
+            m2.metric("🎤 Audio Attachments", audio_count)
+            m3.metric("👥 Active Agents", df["user-name"].nunique() if "user-name" in df.columns else 0)
+            
+            st.divider()
+            
+            # Per-user breakdown
+            st.subheader("👤 Agent Performance Breakdown")
+            if "user-name" in df.columns:
+                user_stats = df.groupby("user-name").agg(
+                    Records=("id", "count"),
+                    Audio_Submissions=("Audio Recording Memo", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum())
+                ).reset_index()
+                user_stats.columns = ["Agent Name", "Records Entered", "Audio Uploaded"]
+                user_stats = user_stats.sort_values("Records Entered", ascending=False)
+                st.dataframe(user_stats, use_container_width=True, hide_index=True)
+                
+                # Simple bar chart
+                st.bar_chart(user_stats.set_index("Agent Name")["Records Entered"])
+            
+            st.divider()
+            
             st.subheader("📥 Cloud Data Packages Extraction Modules")
             c1, c2 = st.columns(2)
             
@@ -221,3 +256,9 @@ elif st.session_state["page"] == "Data":
                     st.rerun()
         else:
             st.info("No surveyor records are currently stored inside your remote GitHub cloud database file.")
+'''
+
+with open('/mnt/agents/output/app.py', 'w', encoding='utf-8') as f:
+    f.write(app_code)
+
+print("Done!")

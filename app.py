@@ -14,8 +14,8 @@ GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "control-sample-collction"
 CSV_FILENAME = "amhara_me_2026.csv"
 
-# Expected columns - Audio is stored as base64 in CSV (proven working)
-EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Recording Memo"]
+# Expected columns
+EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Base64"]
 
 # ============================================================================
 # CLOUD DATABASE STORAGE CORE LOGIC (GITHUB API)
@@ -32,7 +32,6 @@ def get_github_headers():
     }
 
 def fetch_data_from_github() -> pd.DataFrame:
-    """Downloads the current CSV database file from your repository"""
     headers = get_github_headers()
     if not headers:
         return pd.DataFrame(columns=EXPECTED_COLS)
@@ -74,7 +73,6 @@ def fetch_data_from_github() -> pd.DataFrame:
     return pd.DataFrame(columns=EXPECTED_COLS)
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
-    """Overwrites or appends data rows to your repository spreadsheet"""
     headers = get_github_headers()
     if not headers:
         return False
@@ -110,12 +108,6 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
     except Exception as e:
         st.error(f"Network error during upload: {str(e)}")
         return False
-
-def to_b64(file):
-    """Encodes uploaded media binaries safely into flat strings"""
-    if file:
-        return base64.b64encode(file.getvalue()).decode()
-    return ""
 
 # ============================================================================
 # STATE ROUTING MANAGEMENT
@@ -177,6 +169,12 @@ elif st.session_state["page"] == "Reg":
                         except:
                             next_id = len(df) + 1
                         
+                        # Encode audio to base64 if provided
+                        audio_base64 = ""
+                        if audio is not None:
+                            audio_bytes = audio.getvalue()
+                            audio_base64 = base64.b64encode(audio_bytes).decode()
+                        
                         new_entry = pd.DataFrame([{
                             "id": next_id,
                             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -185,7 +183,7 @@ elif st.session_state["page"] == "Reg":
                             "Woreda Zone": woreda,
                             "Kebele Locality": kebele,
                             "Phone Link Contact": phone,
-                            "Audio Recording Memo": to_b64(audio)
+                            "Audio Base64": audio_base64
                         }])
                         
                         updated_df = pd.concat([df, new_entry], ignore_index=True)
@@ -233,13 +231,13 @@ elif st.session_state["page"] == "Data":
             
             total_records = len(df)
             audio_count = 0
-            if "Audio Recording Memo" in df.columns:
-                audio_count = df["Audio Recording Memo"].apply(lambda x: pd.notna(x) and str(x).strip() != "").sum()
+            if "Audio Base64" in df.columns:
+                audio_count = df["Audio Base64"].apply(lambda x: pd.notna(x) and str(x).strip() != "").sum()
             
             # Metrics cards
             m1, m2, m3 = st.columns(3)
             m1.metric("📋 Total Records", total_records)
-            m2.metric("🎤 Audio Attachments", audio_count)
+            m2.metric("🎤 Audio Recordings", audio_count)
             m3.metric("👥 Active Agents", df["user-name"].nunique() if "user-name" in df.columns else 0)
             
             st.divider()
@@ -249,9 +247,9 @@ elif st.session_state["page"] == "Data":
             if "user-name" in df.columns:
                 user_stats = df.groupby("user-name").agg(
                     Records=("id", "count"),
-                    Audio_Submissions=("Audio Recording Memo", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum())
+                    Audio_Recordings=("Audio Base64", lambda x: x.apply(lambda v: pd.notna(v) and str(v).strip() != "").sum())
                 ).reset_index()
-                user_stats.columns = ["Agent Name", "Records Entered", "Audio Uploaded"]
+                user_stats.columns = ["Agent Name", "Records Entered", "Audio Recordings"]
                 user_stats = user_stats.sort_values("Records Entered", ascending=False)
                 st.dataframe(user_stats, use_container_width=True, hide_index=True)
                 
@@ -263,29 +261,29 @@ elif st.session_state["page"] == "Data":
             st.subheader("📥 Cloud Data Packages Extraction Modules")
             c1, c2 = st.columns(2)
             
-            display_df = df.drop(columns=["Audio Recording Memo"]) if "Audio Recording Memo" in df.columns else df
+            display_df = df.drop(columns=["Audio Base64"], errors="ignore")
             c1.download_button("📥 Extract Metrics Sheet (CSV)", display_df.to_csv(index=False).encode('utf-8-sig'), "Amhara_ME_Data_2026.csv", use_container_width=True)
             
-            with st.spinner("Decoding audio binary streams from database..."):
+            with st.spinner("Packing audio recordings..."):
                 z_buf = BytesIO()
                 with zipfile.ZipFile(z_buf, "w") as zf:
-                    audio_found = 0
+                    audio_packed = 0
                     for idx, row in df.iterrows():
-                        audio_str = row.get('Audio Recording Memo', '')
-                        if pd.notna(audio_str) and str(audio_str).strip() != "":
+                        b64_data = str(row.get('Audio Base64', '')).strip()
+                        if b64_data and b64_data != "":
                             try:
-                                binary_audio = base64.b64decode(audio_str)
-                                farmer_name = str(row.get('Farmer Name', f'Unknown_{idx}')).replace(' ', '_')
-                                zf.writestr(f"ID_{row.get('id', idx)}_{farmer_name}.mp3", binary_audio)
-                                audio_found += 1
-                            except:
+                                audio_bytes = base64.b64decode(b64_data)
+                                fn = f"ID_{row.get('id', idx)}_{str(row.get('Farmer Name', f'Unknown_{idx}')).replace(' ', '_')}.mp3"
+                                zf.writestr(fn, audio_bytes)
+                                audio_packed += 1
+                            except Exception:
                                 pass
                     
-                    if audio_found > 0:
-                        st.success(f"✅ {audio_found} audio file(s) decoded and packed in ZIP.")
+                    if audio_packed > 0:
+                        st.success(f"✅ {audio_packed} audio recording(s) packed in ZIP.")
                     else:
-                        st.info("ℹ️ No audio recordings found in database.")
-            c2.download_button("🎤 Extract Voice Recordings Archive (ZIP)", z_buf.getvalue(), "Amhara_ME_Audios.zip", use_container_width=True)
+                        st.info("ℹ️ No audio recordings available for ZIP.")
+            c2.download_button("🎤 Extract Audio Recordings (ZIP)", z_buf.getvalue(), "Amhara_ME_Audios.zip", use_container_width=True)
 
             st.divider()
 

@@ -29,7 +29,6 @@ def get_github_headers():
     }
 
 def fetch_data_from_github() -> pd.DataFrame:
-    \"\"\"Downloads the current CSV database file straight from your repository\"\"\"
     headers = get_github_headers()
     if not headers: 
         return pd.DataFrame()

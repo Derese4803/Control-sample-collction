@@ -15,7 +15,7 @@ GITHUB_REPO = "control-sample-collction"
 CSV_FILENAME = "amhara_me_2026.csv"
 AUDIO_FOLDER = "audio"
 
-# Expected columns - Audio Filename stores reference, Audio Base64 stores fallback data
+# Expected columns
 EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "Kebele Locality", "Phone Link Contact", "Audio Filename", "Audio Base64"]
 
 # ============================================================================
@@ -118,7 +118,6 @@ def upload_audio_to_github(filename, file_bytes):
 
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{AUDIO_FOLDER}/{filename}"
 
-    # Check file size - GitHub limit is 100MB
     if len(file_bytes) > 100 * 1024 * 1024:
         return False, f"File too large: {len(file_bytes)} bytes (max 100MB)"
 
@@ -135,11 +134,9 @@ def upload_audio_to_github(filename, file_bytes):
         if res.status_code in [200, 201]:
             return True, "OK"
         elif res.status_code == 404:
-            return False, "404: audio/ folder not found. Create it first on GitHub."
+            return False, "404: audio/ folder not found. On GitHub, create file audio/.gitkeep first."
         elif res.status_code == 401:
             return False, "401: Unauthorized - token missing repo scope"
-        elif res.status_code == 422:
-            return False, f"422: Validation failed - {res.text}"
         else:
             return False, f"HTTP {res.status_code}: {res.text[:200]}"
     except Exception as e:

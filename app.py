@@ -22,7 +22,6 @@ EXPECTED_COLS = ["id", "timestamp", "user-name", "Farmer Name", "Woreda Zone", "
 # ============================================================================
 
 def get_github_headers():
-    """Retrieves authentication token securely from Streamlit Secret Manager"""
     token = st.secrets.get("github", {}).get("token")
     if not token:
         st.error("❌ GitHub token missing in .streamlit/secrets.toml!")
@@ -33,7 +32,6 @@ def get_github_headers():
     }
 
 def fetch_data_from_github() -> pd.DataFrame:
-    """Downloads the current CSV database file straight from your repository"""
     headers = get_github_headers()
     if not headers:
         return pd.DataFrame(columns=EXPECTED_COLS)
@@ -43,46 +41,37 @@ def fetch_data_from_github() -> pd.DataFrame:
     try:
         response = requests.get(url, headers=headers, timeout=10)
 
-        # File doesn't exist yet — return empty with headers
+        # File doesn't exist yet
         if response.status_code == 404:
             return pd.DataFrame(columns=EXPECTED_COLS)
 
         if response.status_code == 200:
             content = base64.b64decode(response.json()['content']).decode('utf-8')
 
-            # Check if file is completely empty (0 bytes or just whitespace)
+            # Completely empty file
             if not content or not content.strip():
                 return pd.DataFrame(columns=EXPECTED_COLS)
 
-            # Check if content has only whitespace lines
-            non_empty_lines = [line for line in content.split('\n') if line.strip()]
-            if len(non_empty_lines) == 0:
-                return pd.DataFrame(columns=EXPECTED_COLS)
-
-            # Now safe to parse CSV
+            # Parse CSV
             try:
                 df = pd.read_csv(io.StringIO(content))
                 
-                # FIX: If columns don't match expected, force correct headers
-                actual_cols = [str(c).strip() for c in df.columns]
-                expected_set = set(EXPECTED_COLS)
-                actual_set = set(actual_cols)
+                # CRITICAL FIX: Check if header columns match expected
+                actual_cols = [str(c).strip().lower() for c in df.columns]
+                expected_cols_lower = [c.lower() for c in EXPECTED_COLS]
                 
-                if actual_set != expected_set:
-                    # Try re-reading with proper column names
-                    df = pd.read_csv(io.StringIO(content), names=EXPECTED_COLS, header=0)
-                    # If first row is garbage, skip it
-                    if len(df) > 0:
-                        first_id = str(df.iloc[0].get('id', '')).strip()
-                        if first_id == '' or not first_id.isdigit():
-                            df = pd.read_csv(io.StringIO(content), names=EXPECTED_COLS, skiprows=1)
+                # If columns don't match at all, file is corrupted — treat as empty
+                if set(actual_cols) != set(expected_cols_lower):
+                    return pd.DataFrame(columns=EXPECTED_COLS)
                 
-                # Ensure all expected columns exist
-                for col in EXPECTED_COLS:
-                    if col not in df.columns:
-                        df[col] = ''
-                        
-                return df[EXPECTED_COLS]
+                # Ensure column names match exactly (case-sensitive)
+                df.columns = EXPECTED_COLS
+                
+                # Drop rows where id is missing or not a number
+                df = df.dropna(subset=['id'])
+                df = df[df['id'].astype(str).str.strip() != '']
+                
+                return df
                 
             except pd.errors.EmptyDataError:
                 return pd.DataFrame(columns=EXPECTED_COLS)
@@ -93,14 +82,12 @@ def fetch_data_from_github() -> pd.DataFrame:
     return pd.DataFrame(columns=EXPECTED_COLS)
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
-    """Overwrites or appends data rows to your repository spreadsheet"""
     headers = get_github_headers()
     if not headers:
         return False
 
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
 
-    # Try to get existing file SHA (file may not exist yet)
     sha = None
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -132,7 +119,6 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
         return False
 
 def to_b64(file):
-    """Encodes standard uploaded media binaries safely into flat strings"""
     if file:
         return base64.b64encode(file.getvalue()).decode()
     return ""

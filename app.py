@@ -50,13 +50,18 @@ def fetch_data_from_github() -> pd.DataFrame:
         if response.status_code == 200:
             content = base64.b64decode(response.json()['content']).decode('utf-8')
 
-            # Handle completely empty file (0 bytes or just whitespace)
+            # Check if file is completely empty (0 bytes or just whitespace)
             if not content or not content.strip():
                 return pd.DataFrame(columns=EXPECTED_COLS)
 
+            # Check if content has only whitespace lines
+            non_empty_lines = [line for line in content.split('\n') if line.strip()]
+            if len(non_empty_lines) == 0:
+                return pd.DataFrame(columns=EXPECTED_COLS)
+
+            # Now safe to parse CSV
             try:
                 df = pd.read_csv(io.StringIO(content))
-                # Handle file with no columns
                 if df.empty and len(df.columns) == 0:
                     return pd.DataFrame(columns=EXPECTED_COLS)
                 return df
@@ -76,8 +81,14 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
 
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
 
-    response = requests.get(url, headers=headers)
-    sha = response.json()['sha'] if response.status_code == 200 else None
+    # Try to get existing file SHA (file may not exist yet)
+    sha = None
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            sha = response.json().get('sha')
+    except Exception:
+        pass
 
     csv_data = updated_df.to_csv(index=False)
     encoded_data = base64.b64encode(csv_data.encode()).decode()
@@ -92,7 +103,11 @@ def save_data_to_github(updated_df: pd.DataFrame) -> bool:
         
     try:
         res = requests.put(url, headers=headers, json=payload, timeout=10)
-        return res.status_code in [200, 201]
+        if res.status_code in [200, 201]:
+            return True
+        else:
+            st.error(f"GitHub API error: {res.status_code} - {res.text}")
+            return False
     except Exception as e:
         st.error(f"Network error during upload: {str(e)}")
         return False
